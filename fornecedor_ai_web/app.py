@@ -204,9 +204,9 @@ def criar_proposta(payload: PropostaPayload) -> dict:
 def tela_resposta(request: Request, id: int, token: str):
     proposta = validate_proposta_token(id, token)
     return TEMPLATES.TemplateResponse(
-        "chat.html",
-        {
-            "request": request,
+        request=request,
+        name="chat.html",
+        context={
             "proposta": proposta,
             "token": token,
         },
