@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resposta da Proposta</title>
+  <link rel="stylesheet" href="/static/chat.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <header class="top">
+        <h1>Assistente de Propostas</h1>
+        <p>Responda em linguagem natural.</p>
+      </header>
+
+      <section class="proposal">
+        <div><strong>Proposta:</strong> {{ proposta['numero_proposta'] }}</div>
+        <div><strong>Fornecedor:</strong> {{ proposta['fornecedor'] }}</div>
+        <div><strong>Valor:</strong> R$ {{ "%.2f"|format(proposta['valor']) }}</div>
+        <div><strong>Data:</strong> {{ proposta['data_proposta'] }}</div>
+      </section>
+
+      <section id="chatBox" class="chat-box">
+        <div class="bubble bot">Digite sua resposta sobre a proposta.</div>
+      </section>
+
+      <form id="formResposta" class="composer">
+        <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
+        <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
+        <input type="hidden" id="token" value="{{ token }}" />
+        <textarea id="mensagem" placeholder="Digite sua resposta sobre a proposta" required></textarea>
+        <button type="submit">Enviar</button>
+      </form>
+
+      <p id="status" class="status"></p>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('formResposta');
+    const chatBox = document.getElementById('chatBox');
+    const statusEl = document.getElementById('status');
+
+    function addBubble(text, type) {
+      const div = document.createElement('div');
+      div.className = `bubble ${type}`;
+      div.textContent = text;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = '';
+
+      const mensagem = document.getElementById('mensagem').value.trim();
+      if (!mensagem) return;
+
+      addBubble(mensagem, 'user');
+
+      const payload = {
+        id_proposta: Number(document.getElementById('idProposta').value),
+        fornecedor: document.getElementById('fornecedor').value,
+        mensagem_texto: mensagem,
+        token: document.getElementById('token').value,
+      };
+
+      try {
+        const resp = await fetch('/resposta', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) {
+          addBubble(data.detail || 'Erro ao enviar resposta.', 'bot');
+          return;
+        }
+
+        addBubble(data.mensagem, 'bot');
+        statusEl.textContent = 'Resposta registrada com sucesso.';
+        document.getElementById('mensagem').value = '';
+        document.getElementById('mensagem').disabled = true;
+        form.querySelector('button').disabled = true;
+      } catch (err) {
+        addBubble('Falha de conexao ao enviar resposta.', 'bot');
+      }
+    });
+  </script>
+</body>
+</html>

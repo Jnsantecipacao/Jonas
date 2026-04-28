@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: fornecedor-ai-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn fornecedor_ai_web.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
