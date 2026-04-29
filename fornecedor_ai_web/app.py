@@ -241,16 +241,24 @@ def responder(payload: RespostaPayload) -> dict:
 
 
 @app.get("/admin/respostas", response_class=JSONResponse)
-def listar_respostas() -> dict:
+def listar_respostas(limit: int = 100) -> dict:
+    limit = max(1, min(limit, 1000))
     with get_conn() as conn:
         rows = conn.execute(
             """
             SELECT r.id, r.id_proposta, p.numero_proposta, r.fornecedor,
-                   r.mensagem_texto, r.classificacao_ia, r.created_at
+                   r.mensagem_texto,
+                   r.classificacao_ia AS classificacao,
+                   r.created_at AS data_resposta,
+                   r.classificacao_ia,
+                   r.created_at
             FROM respostas r
             JOIN propostas p ON p.id = r.id_proposta
             ORDER BY r.id DESC
+            LIMIT ?
             """
+            ,
+            (limit,),
         ).fetchall()
     return {"items": [dict(r) for r in rows]}
 
