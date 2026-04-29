@@ -264,7 +264,14 @@ def _get_smtp_config() -> dict:
     smtp_port_raw = _env_first("SMTP_PORT", "smtp_port") or "587"
     smtp_user = _env_first("SMTP_USER", "smtp_user")
     smtp_password = _env_first("SMTP_PASSWORD", "smtp_password")
-    notify_email = _env_first("NOTIFY_EMAIL", "notify_email") or smtp_user
+    notify_email = _env_first(
+        "NOTIFY_EMAIL",
+        "notify_email",
+        "NOTIFYEMAIL",
+        "notifyemail",
+        "FINANCE_EMAIL",
+        "finance_email",
+    ) or smtp_user
 
     m = re.search(r"(\d+)", smtp_port_raw)
     smtp_port = int(m.group(1)) if m else 587
