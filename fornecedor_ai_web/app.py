@@ -294,7 +294,7 @@ def responder(payload: RespostaPayload) -> dict:
     return {
         "ok": True,
         "id_proposta": payload.id_proposta,
-        "fornecedor": proposta["fornecedor"],
+        "fornecedor": proposta_dict["fornecedor"],
         "classificacao": classificacao,
         "mensagem": mensagem_final,
         "data_hora": now,
