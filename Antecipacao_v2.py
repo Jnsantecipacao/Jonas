@@ -1,5 +1,5 @@
 ﻿import pandas as pd # type: ignore
-from datetime import datetime
+from datetime import datetime, timezone
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
@@ -25,6 +25,12 @@ import uuid
 import shutil
 import urllib.request
 import urllib.error
+import urllib.parse
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 import matplotlib # type: ignore
 matplotlib.use('TkAgg')
@@ -79,6 +85,7 @@ _TK_SCALING_APPLIED = False
 _TK_SCALING_VALUE = None
 _PUBLIC_TUNNEL_URL = None
 _LAST_PUBLIC_TUNNEL_ERROR = ''
+SP_TIMEZONE = ZoneInfo('America/Sao_Paulo') if ZoneInfo is not None else timezone.utc
 
 
 def _clamp(value, minimum, maximum):
@@ -647,7 +654,8 @@ def save_propostas(propostas):
         print(f"âŒ Erro ao salvar propostas: {e}")
         raise
 
-def registrar_proposta(token, fornecedor, cnpj, email, valor_total, desconto, valor_pagar, pdf_path, data_pagamento, assunto=''):
+def registrar_proposta(token, fornecedor, cnpj, email, valor_total, desconto, valor_pagar, pdf_path, data_pagamento,
+                       assunto='', ai_chat_url='', ai_id_proposta=None, ai_token=''):
     propostas = load_propostas()
     propostas[token] = {
         'token': token,
@@ -663,9 +671,146 @@ def registrar_proposta(token, fornecedor, cnpj, email, valor_total, desconto, va
         'status': 'pendente',  # pendente | aceito | negociando | recusado
         'data_resposta': None,
         'mensagem': '',
-        'assunto': assunto
+        'assunto': assunto,
+        'ai_chat_url': ai_chat_url or '',
+        'ai_id_proposta': ai_id_proposta,
+        'ai_token': ai_token or '',
     }
     save_propostas(propostas)
+
+
+def _parse_ai_link_data(ai_chat_url):
+    try:
+        parsed = urllib.parse.urlparse(str(ai_chat_url or '').strip())
+        query = urllib.parse.parse_qs(parsed.query)
+        proposta_id_raw = str(query.get('id', [''])[0] or '').strip()
+        if not proposta_id_raw:
+            return None, ''
+        proposta_id = int(proposta_id_raw)
+        token = str((query.get('token', [''])[0]) or '').strip()
+        return proposta_id, token
+    except Exception:
+        return None, ''
+
+
+def _normalizar_status_ia(classificacao):
+    valor = str(classificacao or '').strip().upper()
+    if valor == 'ACEITO':
+        return 'aceito'
+    if valor == 'NEGOCIAR':
+        return 'negociando'
+    if valor == 'RECUSADO':
+        return 'recusado'
+    return ''
+
+
+def _formatar_data_resposta(valor):
+    texto = str(valor or '').strip()
+    if not texto:
+        return datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+
+    # Dados do backend web chegam em ISO e, historicamente, em UTC.
+    # Converte para horario de Sao Paulo para exibicao coerente no desktop.
+    texto_iso = texto.replace('Z', '+00:00')
+    try:
+        dt = datetime.fromisoformat(texto_iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(SP_TIMEZONE).strftime('%d/%m/%Y %H:%M:%S')
+    except Exception:
+        pass
+
+    for fmt in ('%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y %H:%M:%S'):
+        try:
+            dt = datetime.strptime(texto, fmt)
+            if 'T' in texto:
+                dt = dt.replace(tzinfo=timezone.utc).astimezone(SP_TIMEZONE)
+            return dt.strftime('%d/%m/%Y %H:%M:%S')
+        except Exception:
+            pass
+    return texto
+
+
+def sincronizar_respostas_ia(limit=300):
+    try:
+        cfg = load_server_config()
+        ai_base_url = str(cfg.get('ai_base_url', '') or os.getenv('FORNECEDOR_AI_BASE_URL', '')).strip()
+        base = _normalizar_base_url(ai_base_url)
+        if not base:
+            return 0
+
+        endpoint = f'{base}/admin/respostas?limit={max(1, min(int(limit), 1000))}'
+        with urllib.request.urlopen(endpoint, timeout=8) as resp:
+            body = resp.read().decode('utf-8', errors='ignore')
+            parsed = json.loads(body)
+
+        items = list(parsed.get('items', []) or [])
+        if not items:
+            return 0
+
+        respostas_por_id = {}
+        for item in items:
+            try:
+                pid = int(item.get('id_proposta'))
+            except Exception:
+                continue
+            if pid not in respostas_por_id:
+                respostas_por_id[pid] = item
+
+        propostas = load_propostas()
+        alteradas = 0
+
+        for token_local, proposta in propostas.items():
+            ai_id = proposta.get('ai_id_proposta')
+            if not ai_id:
+                ai_id, ai_token = _parse_ai_link_data(proposta.get('ai_chat_url', ''))
+                if ai_id:
+                    proposta['ai_id_proposta'] = ai_id
+                    if ai_token:
+                        proposta['ai_token'] = ai_token
+                    alteradas += 1
+
+            if not ai_id:
+                continue
+
+            resposta = respostas_por_id.get(int(ai_id))
+
+            if not resposta:
+                continue
+
+            classificacao = resposta.get('classificacao') or resposta.get('classificacao_ia')
+            novo_status = _normalizar_status_ia(classificacao)
+            if not novo_status:
+                continue
+
+            status_atual = str(proposta.get('status', 'pendente'))
+            mudou = False
+
+            if status_atual != novo_status:
+                proposta['status'] = novo_status
+                mudou = True
+
+            data_resp = _formatar_data_resposta(resposta.get('data_resposta') or resposta.get('created_at'))
+            if data_resp and proposta.get('data_resposta') != data_resp:
+                proposta['data_resposta'] = data_resp
+                mudou = True
+
+            msg_resp = str(resposta.get('mensagem_texto', '') or '').strip()
+            if msg_resp and proposta.get('mensagem') != msg_resp:
+                proposta['mensagem'] = msg_resp
+                mudou = True
+
+            if mudou:
+                alteradas += 1
+                if status_atual != 'aceito' and novo_status == 'aceito':
+                    _copiar_para_aceitas(proposta)
+
+        if alteradas:
+            save_propostas(propostas)
+        return alteradas
+    except Exception as e:
+        print(f'Erro ao sincronizar respostas IA: {e}')
+        return 0
 
 def _enviar_notificacao_resposta(proposta, status):
     """Envia email de notificacao ao remetente SMTP quando o fornecedor responde."""
@@ -1805,10 +1950,6 @@ class AntecipacaoPagamentos:
                     if to_email:
                         token = str(uuid.uuid4())
                         subj = f'Proposta de Antecipação de Pagamentos - {fornecedor} ({cnpj})'
-                        registrar_proposta(token, fornecedor, cnpj_fmt, to_email,
-                                           total_f['valor'], total_f['desconto'], total_f['pagar'],
-                                           pdf_path, data_pagamento.strftime('%d/%m/%Y'),
-                                           assunto=subj)
                         db_str = data_base.strftime('%d/%m/%Y')
                         dp_str = data_pagamento.strftime('%d/%m/%Y')
 
@@ -1819,6 +1960,23 @@ class AntecipacaoPagamentos:
                             fornecedor,
                             total_f['pagar'],
                             db_str,
+                        ) or ''
+                        ai_id_proposta, ai_token = _parse_ai_link_data(ai_chat_url)
+
+                        registrar_proposta(
+                            token,
+                            fornecedor,
+                            cnpj_fmt,
+                            to_email,
+                            total_f['valor'],
+                            total_f['desconto'],
+                            total_f['pagar'],
+                            pdf_path,
+                            data_pagamento.strftime('%d/%m/%Y'),
+                            assunto=subj,
+                            ai_chat_url=ai_chat_url,
+                            ai_id_proposta=ai_id_proposta,
+                            ai_token=ai_token,
                         )
 
                         html_b  = get_email_html(fornecedor, cnpj, db_str, dp_str, taxa_display,
@@ -2450,6 +2608,7 @@ class AplicativoGUI:
             self._v_dash_period.set('Mes Atual')
 
     def _refresh_dashboard(self, show_errors=False):
+        sincronizar_respostas_ia()
         self._atualizar_opcoes_periodo_dashboard()
 
         periodo = self._v_dash_period.get().strip()
@@ -2801,6 +2960,7 @@ class AplicativoGUI:
         self._bind_treeview_resize(frame, self._prop_tree, self._prop_tree_columns)
 
     def _refresh_propostas(self):
+        sincronizar_respostas_ia()
         for row in self._prop_tree.get_children():
             self._prop_tree.delete(row)
         propostas = load_propostas()

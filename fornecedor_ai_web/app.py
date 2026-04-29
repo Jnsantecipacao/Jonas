@@ -14,6 +14,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
+
+try:
     from openai import OpenAI
 except Exception:
     OpenAI = None
@@ -39,6 +44,14 @@ CLASSIFIER_PROMPT = (
     "Responda apenas com uma palavra: ACEITO, NEGOCIAR ou RECUSADO.\n\n"
     "Texto do fornecedor: {resposta}"
 )
+
+APP_TIMEZONE = ZoneInfo("America/Sao_Paulo") if ZoneInfo is not None else None
+
+
+def now_sp_iso() -> str:
+    if APP_TIMEZONE is None:
+        return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(APP_TIMEZONE).isoformat(timespec="seconds")
 
 app = FastAPI(title="Fornecedor IA Respostas", version="1.0.0")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -171,13 +184,13 @@ def startup() -> None:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+    return {"status": "ok", "time": now_sp_iso()}
 
 
 @app.post("/propostas", response_class=JSONResponse)
 def criar_proposta(payload: PropostaPayload) -> dict:
     tk = token_urlsafe(18)
-    now = datetime.utcnow().isoformat()
+    now = now_sp_iso()
     with get_conn() as conn:
         cur = conn.execute(
             """
@@ -218,7 +231,7 @@ def responder(payload: RespostaPayload) -> dict:
     proposta = validate_proposta_token(payload.id_proposta, payload.token)
 
     classificacao = classify_text(payload.mensagem_texto)
-    now = datetime.utcnow().isoformat()
+    now = now_sp_iso()
 
     with get_conn() as conn:
         conn.execute(
