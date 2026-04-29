@@ -268,7 +268,7 @@ def responder(payload: RespostaPayload) -> dict:
         # Se ação de botão, traduzir para classificação apropriada
         if payload.acao == "aceitar":
             classificacao = STATUS_ACEITO
-            mensagem_final = "Recebi sua confirmação de aceite. A proposta foi aprovada com sucesso e seguiremos com o próximo passo do processo."
+            mensagem_final = "Recebi sua confirmação de aceite. A proposta foi aprovada com sucesso e seguiremos com a formalização dos próximos passos do processo. Caso precise de qualquer alinhamento adicional, nosso atendimento também está disponível pelo WhatsApp: (11) 93239-3849."
         elif payload.acao == "negociar":
             classificacao = STATUS_NEGOCIAR
             mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
