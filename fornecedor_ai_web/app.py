@@ -186,18 +186,53 @@ def gerar_saudacao_inicial(taxa_desconto: Optional[float]) -> str:
 
 
 def gerar_resposta_negociacao(taxa_atual: float) -> str:
-    """Gera resposta automática de negociação baseada na taxa."""
+    """Gera resposta automática de negociação com regra fixa de 2 p.p."""
     if taxa_atual is None:
         return "Recebi sua proposta e estou à disposição para tratar exclusivamente da taxa de desconto. Se preferir, também podemos seguir pelo WhatsApp: (11) 93239-3849."
-    
-    # Se já está no mínimo aceitável
-    if taxa_atual <= 4:
-        return f"Recebi sua proposta com taxa de {taxa_atual}%. Essa condição já está dentro do nosso mínimo aceitável e podemos seguir com a aprovação. Se quiser confirmar por atendimento direto, fale no WhatsApp: (11) 93239-3849."
-    
-    # Calcular contraproposta (máximo até 4%)
-    nova_taxa = max(taxa_atual - 2, 4)
-    
+
+    # Regra de negocio solicitada: 10->8, 9->7, 8->6, 7->5, 6->4
+    mapa_contraproposta = {10: 8, 9: 7, 8: 6, 7: 5, 6: 4}
+    taxa_int = int(round(float(taxa_atual)))
+
+    if taxa_int not in mapa_contraproposta:
+        return (
+            f"Recebi sua proposta com taxa de {taxa_atual}%. "
+            "Para seguir com negociação fora da faixa padrão, peço por gentileza "
+            "que continue o alinhamento direto pelo WhatsApp: (11) 93239-3849."
+        )
+
+    nova_taxa = mapa_contraproposta[taxa_int]
+
     return f"Recebi sua proposta com taxa de {taxa_atual}%. Como contraproposta, podemos seguir com taxa de {nova_taxa}%. Se essa condição não for viável, peço por gentileza que continue o alinhamento pelo WhatsApp: (11) 93239-3849."
+
+
+def fornecedor_aceitou_sugestao(texto: str) -> bool:
+    t = (texto or "").strip().lower()
+    if not t:
+        return False
+
+    termos_aceite = [
+        "aceito",
+        "de acordo",
+        "concordo",
+        "aprovado",
+        "pode seguir",
+        "fechado",
+        "ok",
+    ]
+    termos_negacao = [
+        "não aceito",
+        "nao aceito",
+        "não concordo",
+        "nao concordo",
+        "recuso",
+        "não",
+        "nao",
+    ]
+
+    if any(k in t for k in termos_negacao):
+        return False
+    return any(k in t for k in termos_aceite)
 
 
 def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:
@@ -284,8 +319,25 @@ def responder(payload: RespostaPayload) -> dict:
             classificacao = STATUS_ACEITO
             mensagem_final = "Recebi sua confirmação de aceite. A proposta foi aprovada com sucesso e seguiremos com a formalização dos próximos passos do processo. Caso precise de qualquer alinhamento adicional, nosso atendimento também está disponível pelo WhatsApp: (11) 93239-3849."
         elif payload.acao == "negociar":
-            classificacao = STATUS_NEGOCIAR
-            mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
+            texto_fornecedor = (payload.mensagem_texto or "").strip()
+
+            if texto_fornecedor:
+                if fornecedor_aceitou_sugestao(texto_fornecedor):
+                    classificacao = STATUS_ACEITO
+                    mensagem_final = (
+                        "Recebi o aceite da contraproposta e já encaminhei para o Financeiro. "
+                        "Seguiremos com a formalização dos próximos passos."
+                    )
+                else:
+                    classificacao = STATUS_NEGOCIAR
+                    mensagem_final = (
+                        "Recebi seu retorno e identifiquei que não houve aceite da contraproposta sugerida. "
+                        "Neste caso, seguimos com atendimento direto. Por favor, entre em contato pelo WhatsApp: "
+                        "(11) 93239-3849."
+                    )
+            else:
+                classificacao = STATUS_NEGOCIAR
+                mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
         elif payload.acao == "recusar":
             classificacao = STATUS_RECUSADO
             mensagem_final = "Recebi sua sinalização de não aceite. Para tratarmos qualquer nova condição comercial, peço por gentileza que siga o atendimento pelo WhatsApp: (11) 93239-3849."
