@@ -11,7 +11,7 @@
     <section class="card">
       <header class="top">
         <h1>Assistente de Propostas</h1>
-        <p>Responda em linguagem natural.</p>
+        <p>Responda a proposta comercial</p>
       </header>
 
       <section class="proposal">
@@ -19,17 +19,28 @@
         <div><strong>Fornecedor:</strong> {{ proposta['fornecedor'] }}</div>
         <div><strong>Valor:</strong> R$ {{ "%.2f"|format(proposta['valor']) }}</div>
         <div><strong>Data:</strong> {{ proposta['data_proposta'] }}</div>
+        {% if proposta['taxa_desconto'] %}
+        <div><strong>Taxa de Desconto:</strong> {{ proposta['taxa_desconto'] }}%</div>
+        {% endif %}
       </section>
 
       <section id="chatBox" class="chat-box">
-        <div class="bubble bot">Digite sua resposta sobre a proposta.</div>
+        <div class="bubble bot">
+          {{ resposta_negociacao }}
+        </div>
       </section>
 
-      <form id="formResposta" class="composer">
+      <section class="action-buttons">
+        <button id="btnAceito" class="btn btn-success">Aceito</button>
+        <button id="btnNegociar" class="btn btn-primary">Quero Negociar</button>
+        <button id="btnRecusar" class="btn btn-danger">Não Aceito</button>
+      </section>
+
+      <form id="formResposta" class="composer" style="display: none;">
         <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
         <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
         <input type="hidden" id="token" value="{{ token }}" />
-        <textarea id="mensagem" placeholder="Digite sua resposta sobre a proposta" required></textarea>
+        <textarea id="mensagem" placeholder="Digite sua contraproposta ou comentário" required></textarea>
         <button type="submit">Enviar</button>
       </form>
 
@@ -38,9 +49,15 @@
   </main>
 
   <script>
-    const form = document.getElementById('formResposta');
     const chatBox = document.getElementById('chatBox');
     const statusEl = document.getElementById('status');
+    const formResposta = document.getElementById('formResposta');
+    const btnAceito = document.getElementById('btnAceito');
+    const btnNegociar = document.getElementById('btnNegociar');
+    const btnRecusar = document.getElementById('btnRecusar');
+    const actionButtons = document.querySelector('.action-buttons');
+
+    let respondidoAtivo = false;
 
     function addBubble(text, type) {
       const div = document.createElement('div');
@@ -50,20 +67,26 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      statusEl.textContent = '';
+    function desabilitarBotoes() {
+      btnAceito.disabled = true;
+      btnNegociar.disabled = true;
+      btnRecusar.disabled = true;
+      actionButtons.style.opacity = '0.5';
+      respondidoAtivo = true;
+    }
 
-      const mensagem = document.getElementById('mensagem').value.trim();
-      if (!mensagem) return;
-
-      addBubble(mensagem, 'user');
+    async function enviarResposta(acao = null, mensagem = '') {
+      if (respondidoAtivo) {
+        statusEl.textContent = 'Proposta já foi respondida.';
+        return;
+      }
 
       const payload = {
         id_proposta: Number(document.getElementById('idProposta').value),
         fornecedor: document.getElementById('fornecedor').value,
         mensagem_texto: mensagem,
         token: document.getElementById('token').value,
+        acao: acao,
       };
 
       try {
@@ -76,17 +99,47 @@
         const data = await resp.json();
         if (!resp.ok) {
           addBubble(data.detail || 'Erro ao enviar resposta.', 'bot');
+          statusEl.textContent = 'Erro ao registrar resposta.';
           return;
         }
 
         addBubble(data.mensagem, 'bot');
-        statusEl.textContent = 'Resposta registrada com sucesso.';
-        document.getElementById('mensagem').value = '';
-        document.getElementById('mensagem').disabled = true;
-        form.querySelector('button').disabled = true;
+        statusEl.textContent = `Resposta registrada: ${data.classificacao}`;
+        desabilitarBotoes();
+        formResposta.style.display = 'none';
       } catch (err) {
-        addBubble('Falha de conexao ao enviar resposta.', 'bot');
+        addBubble('Falha de conexão ao enviar resposta.', 'bot');
+        statusEl.textContent = 'Erro de conexão.';
       }
+    }
+
+    btnAceito.addEventListener('click', () => {
+      addBubble('Aceito', 'user');
+      enviarResposta('aceitar');
+    });
+
+    btnNegociar.addEventListener('click', () => {
+      addBubble('Quero Negociar', 'user');
+      formResposta.style.display = 'grid';
+      document.getElementById('mensagem').focus();
+    });
+
+    btnRecusar.addEventListener('click', () => {
+      addBubble('Não Aceito', 'user');
+      enviarResposta('recusar');
+    });
+
+    formResposta.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = '';
+
+      const mensagem = document.getElementById('mensagem').value.trim();
+      if (!mensagem) return;
+
+      addBubble(mensagem, 'user');
+      await enviarResposta('negociar', mensagem);
+      document.getElementById('mensagem').value = '';
+      formResposta.style.display = 'none';
     });
   </script>
 </body>

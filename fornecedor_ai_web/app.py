@@ -62,6 +62,7 @@ class RespostaPayload(BaseModel):
     fornecedor: str
     mensagem_texto: str
     token: str
+    acao: Optional[str] = None  # "aceitar", "negociar", "recusar"
 
 
 class PropostaPayload(BaseModel):
@@ -69,6 +70,7 @@ class PropostaPayload(BaseModel):
     fornecedor: str
     valor: float
     data_proposta: str
+    taxa_desconto: Optional[float] = None
 
 
 def get_conn() -> sqlite3.Connection:
@@ -87,6 +89,7 @@ def init_db() -> None:
                 fornecedor TEXT NOT NULL,
                 valor REAL NOT NULL,
                 data_proposta TEXT NOT NULL,
+                taxa_desconto REAL,
                 token TEXT NOT NULL UNIQUE,
                 responded INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
@@ -161,6 +164,30 @@ def classify_text(texto: str) -> str:
     return classify_local(texto)
 
 
+def calcular_contraproposta(taxa_atual: float) -> Optional[float]:
+    """Calcula a contraproposta aplicando redução de 2 pontos percentuais."""
+    if taxa_atual is None:
+        return None
+    # Não negociar abaixo de 4%
+    nova_taxa = taxa_atual - 2
+    return max(nova_taxa, 4) if nova_taxa >= 4 else None
+
+
+def gerar_resposta_negociacao(taxa_atual: float) -> str:
+    """Gera resposta automática de negociação baseada na taxa."""
+    if taxa_atual is None:
+        return "Sua proposta foi recebida. Entraremos em contato para discussão. Caso tenha dúvidas, contate: (11) 93239-3849"
+    
+    # Se já está no mínimo aceitável
+    if taxa_atual <= 4:
+        return f"Sua proposta com taxa de {taxa_atual}% está dentro de nossas condições mínimas. Podemos aceitar esta proposta. Confirme via WhatsApp: (11) 93239-3849"
+    
+    # Calcular contraproposta (máximo até 4%)
+    nova_taxa = max(taxa_atual - 2, 4)
+    
+    return f"Sua proposta foi recebida com taxa de {taxa_atual}%. Podemos negociar a taxa para {nova_taxa}%. Caso não seja viável, peço por gentileza entrar em contato via WhatsApp: (11) 93239-3849 para alinharmos melhor."
+
+
 def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM propostas WHERE id = ?", (id_proposta,)).fetchone()
@@ -194,14 +221,15 @@ def criar_proposta(payload: PropostaPayload) -> dict:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO propostas (numero_proposta, fornecedor, valor, data_proposta, token, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO propostas (numero_proposta, fornecedor, valor, data_proposta, taxa_desconto, token, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.numero_proposta,
                 payload.fornecedor,
                 payload.valor,
                 payload.data_proposta,
+                payload.taxa_desconto,
                 tk,
                 now,
             ),
@@ -216,12 +244,14 @@ def criar_proposta(payload: PropostaPayload) -> dict:
 @app.get("/resposta", response_class=HTMLResponse)
 def tela_resposta(request: Request, id: int, token: str):
     proposta = validate_proposta_token(id, token)
+    resposta_negociacao = gerar_resposta_negociacao(proposta.get("taxa_desconto"))
     return TEMPLATES.TemplateResponse(
         request=request,
         name="chat.html",
         context={
             "proposta": proposta,
             "token": token,
+            "resposta_negociacao": resposta_negociacao,
         },
     )
 
@@ -230,7 +260,21 @@ def tela_resposta(request: Request, id: int, token: str):
 def responder(payload: RespostaPayload) -> dict:
     proposta = validate_proposta_token(payload.id_proposta, payload.token)
 
-    classificacao = classify_text(payload.mensagem_texto)
+    # Se ação de botão, traduzir para classificação apropriada
+    if payload.acao == "aceitar":
+        classificacao = STATUS_ACEITO
+        mensagem_final = "Proposta aceita!"
+    elif payload.acao == "negociar":
+        classificacao = STATUS_NEGOCIAR
+        mensagem_final = gerar_resposta_negociacao(proposta.get("taxa_desconto"))
+    elif payload.acao == "recusar":
+        classificacao = STATUS_RECUSADO
+        mensagem_final = "Proposta recusada. Entraremos em contato."
+    else:
+        # Texto livre - classificar automaticamente
+        classificacao = classify_text(payload.mensagem_texto)
+        mensagem_final = payload.mensagem_texto
+
     now = now_sp_iso()
 
     with get_conn() as conn:
@@ -239,7 +283,7 @@ def responder(payload: RespostaPayload) -> dict:
             INSERT INTO respostas (id_proposta, fornecedor, mensagem_texto, classificacao_ia, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (payload.id_proposta, payload.fornecedor, payload.mensagem_texto, classificacao, now),
+            (payload.id_proposta, payload.fornecedor, mensagem_final, classificacao, now),
         )
         conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (payload.id_proposta,))
 
@@ -248,7 +292,7 @@ def responder(payload: RespostaPayload) -> dict:
         "id_proposta": payload.id_proposta,
         "fornecedor": proposta["fornecedor"],
         "classificacao": classificacao,
-        "mensagem": f"Recebemos sua resposta como: {classificacao}",
+        "mensagem": mensagem_final,
         "data_hora": now,
     }
 
