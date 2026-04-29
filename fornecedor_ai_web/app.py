@@ -176,16 +176,16 @@ def calcular_contraproposta(taxa_atual: float) -> Optional[float]:
 def gerar_resposta_negociacao(taxa_atual: float) -> str:
     """Gera resposta automática de negociação baseada na taxa."""
     if taxa_atual is None:
-        return "Sua proposta foi recebida. Entraremos em contato para discussão. Caso tenha dúvidas, contate: (11) 93239-3849"
+        return "Recebi sua proposta e estou à disposição para tratar exclusivamente da taxa de desconto. Se preferir, também podemos seguir pelo WhatsApp: (11) 93239-3849."
     
     # Se já está no mínimo aceitável
     if taxa_atual <= 4:
-        return f"Sua proposta com taxa de {taxa_atual}% está dentro de nossas condições mínimas. Podemos aceitar esta proposta. Confirme via WhatsApp: (11) 93239-3849"
+        return f"Recebi sua proposta com taxa de {taxa_atual}%. Essa condição já está dentro do nosso mínimo aceitável e podemos seguir com a aprovação. Se quiser confirmar por atendimento direto, fale no WhatsApp: (11) 93239-3849."
     
     # Calcular contraproposta (máximo até 4%)
     nova_taxa = max(taxa_atual - 2, 4)
     
-    return f"Sua proposta foi recebida com taxa de {taxa_atual}%. Podemos negociar a taxa para {nova_taxa}%. Caso não seja viável, peço por gentileza entrar em contato via WhatsApp: (11) 93239-3849 para alinharmos melhor."
+    return f"Recebi sua proposta com taxa de {taxa_atual}%. Como contraproposta, podemos seguir com taxa de {nova_taxa}%. Se essa condição não for viável, peço por gentileza que continue o alinhamento pelo WhatsApp: (11) 93239-3849."
 
 
 def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:

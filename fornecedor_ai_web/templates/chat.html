@@ -30,7 +30,7 @@
         data-negotiation-suggestion="{{ resposta_negociacao }}"
       >
         <div class="bubble bot">
-          Olá! Sou o assistente virtual de negociação da proposta. Se quiser ajustar a taxa de desconto, clique em Quero Negociar.
+          Olá! Sou o assistente virtual responsável pela negociação desta proposta. Posso tratar com você exclusivamente da taxa de desconto. Se quiser ver minha sugestão agora, clique em Quero Negociar.
         </div>
       </section>
 
@@ -44,7 +44,7 @@
         <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
         <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
         <input type="hidden" id="token" value="{{ token }}" />
-        <textarea id="mensagem" placeholder="Digite sua contraproposta ou comentário" required></textarea>
+        <textarea id="mensagem" placeholder="Digite sua contraproposta sobre a taxa" required></textarea>
         <button type="submit">Enviar</button>
       </form>
 
