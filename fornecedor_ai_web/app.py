@@ -173,6 +173,18 @@ def calcular_contraproposta(taxa_atual: float) -> Optional[float]:
     return max(nova_taxa, 4) if nova_taxa >= 4 else None
 
 
+def gerar_saudacao_inicial(taxa_desconto: Optional[float]) -> str:
+    """Gera saudação inicial variável baseada na taxa de desconto."""
+    if taxa_desconto is None:
+        return "Olá! Bem-vindo ao sistema de negociação de propostas. Clique em Quero Negociar para sugerir ajustes na taxa."
+    elif taxa_desconto > 10:
+        return "Taxa elevada detectada. Vamos negociar para encontrar a melhor condição? Clique em Quero Negociar."
+    elif taxa_desconto >= 6:
+        return "Proposta recebida. Podemos ajustar a taxa se necessário. Use Quero Negociar para sugerir alterações."
+    else:
+        return "Taxa competitiva! Podemos confirmar esta proposta ou negociar se preferir. Escolha sua opção abaixo."
+
+
 def gerar_resposta_negociacao(taxa_atual: float) -> str:
     """Gera resposta automática de negociação baseada na taxa."""
     if taxa_atual is None:
@@ -246,6 +258,7 @@ def tela_resposta(request: Request, id: int, token: str):
     proposta = validate_proposta_token(id, token)
     proposta_dict = dict(proposta)
     resposta_negociacao = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
+    resposta_inicial = gerar_saudacao_inicial(proposta_dict.get("taxa_desconto"))
     return TEMPLATES.TemplateResponse(
         request=request,
         name="chat.html",
@@ -253,6 +266,7 @@ def tela_resposta(request: Request, id: int, token: str):
             "proposta": proposta_dict,
             "token": token,
             "resposta_negociacao": resposta_negociacao,
+            "resposta_inicial": resposta_inicial,
         },
     )
 
