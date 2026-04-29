@@ -135,7 +135,7 @@ def _normalizar_base_url(url):
     return str(url or '').strip().rstrip('/')
 
 
-def _criar_link_resposta_ia(ai_base_url, numero_proposta, fornecedor, valor, data_proposta):
+def _criar_link_resposta_ia(ai_base_url, numero_proposta, fornecedor, valor, data_proposta, taxa_desconto=None):
     base = _normalizar_base_url(ai_base_url)
     if not base:
         return None
@@ -146,6 +146,7 @@ def _criar_link_resposta_ia(ai_base_url, numero_proposta, fornecedor, valor, dat
         'fornecedor': str(fornecedor),
         'valor': float(valor or 0),
         'data_proposta': str(data_proposta),
+        'taxa_desconto': float(taxa_desconto) if taxa_desconto is not None else None,
     }
     data = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(
@@ -1968,6 +1969,7 @@ class AntecipacaoPagamentos:
                             fornecedor,
                             total_f['pagar'],
                             db_str,
+                            (float(taxa_unica) * 100) if taxa_unica is not None else None,
                         ) or ''
                         ai_id_proposta, ai_token = _parse_ai_link_data(ai_chat_url)
 

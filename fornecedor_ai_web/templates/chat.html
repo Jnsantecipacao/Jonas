@@ -24,9 +24,13 @@
         {% endif %}
       </section>
 
-      <section id="chatBox" class="chat-box">
+      <section
+        id="chatBox"
+        class="chat-box"
+        data-negotiation-suggestion="{{ resposta_negociacao }}"
+      >
         <div class="bubble bot">
-          {{ resposta_negociacao }}
+          Olá! Sou o assistente virtual de negociação da proposta. Se quiser ajustar a taxa de desconto, clique em Quero Negociar.
         </div>
       </section>
 
@@ -56,8 +60,11 @@
     const btnNegociar = document.getElementById('btnNegociar');
     const btnRecusar = document.getElementById('btnRecusar');
     const actionButtons = document.querySelector('.action-buttons');
+    const mensagemInput = document.getElementById('mensagem');
+    const sugestaoNegociacao = chatBox.dataset.negotiationSuggestion || '';
 
     let respondidoAtivo = false;
+    let sugestaoExibida = false;
 
     function addBubble(text, type) {
       const div = document.createElement('div');
@@ -120,8 +127,12 @@
 
     btnNegociar.addEventListener('click', () => {
       addBubble('Quero Negociar', 'user');
+      if (!sugestaoExibida && sugestaoNegociacao) {
+        addBubble(sugestaoNegociacao, 'bot');
+        sugestaoExibida = true;
+      }
       formResposta.style.display = 'grid';
-      document.getElementById('mensagem').focus();
+      mensagemInput.focus();
     });
 
     btnRecusar.addEventListener('click', () => {
@@ -138,7 +149,7 @@
 
       addBubble(mensagem, 'user');
       await enviarResposta('negociar', mensagem);
-      document.getElementById('mensagem').value = '';
+      mensagemInput.value = '';
       formResposta.style.display = 'none';
     });
   </script>
