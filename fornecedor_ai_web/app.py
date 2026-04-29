@@ -443,8 +443,7 @@ def _html_confirmacao(fornecedor: str, titulo: str, mensagem: str, cor: str, ico
     .icone{{font-size:64px;margin-bottom:16px}}
     h1{{color:#1e3a5f;font-size:24px;margin-bottom:12px}}
     .mensagem{{color:#4a5568;font-size:15px;line-height:1.6;margin-bottom:28px;padding:0 8px}}
-    .aviso-box{{background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:18px 20px;margin-bottom:24px;color:#166534;font-size:14px;line-height:1.5}}
-    .aviso-box strong{{display:block;margin-bottom:6px;font-size:15px}}
+    .aviso-box{{background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:18px 20px;margin-bottom:24px;color:#166534;font-size:15px;line-height:1.5;font-weight:600}}
     .fornecedor{{color:#718096;font-size:13px;margin-bottom:32px}}
     .footer{{border-top:1px solid #e2e8f0;padding-top:20px;color:#a0aec0;font-size:12px;line-height:1.6}}
     .footer strong{{color:#1e3a5f;display:block;margin-bottom:4px}}
@@ -456,10 +455,7 @@ def _html_confirmacao(fornecedor: str, titulo: str, mensagem: str, cor: str, ico
     <h1>{titulo}</h1>
     <p class="fornecedor">{fornecedor}</p>
     <p class="mensagem">{mensagem}</p>
-    <div class="aviso-box">
-      <strong>📧 Email enviado com sucesso!</strong>
-      Sua resposta foi registrada e o Financeiro será notificado. Aguarde o retorno em breve.
-    </div>
+        <div class="aviso-box">Email enviado. Aguarde retorno do Financeiro.</div>
     <div class="footer">
       <strong>MERCADÃO ATACADISTA – MESA DE ANTECIPAÇÃO</strong>
       jonas@mercadaoatacadista.com.br &nbsp;|&nbsp; (11) 3791-1130 Ramal 2016
