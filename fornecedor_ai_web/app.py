@@ -76,6 +76,10 @@ class PropostaPayload(BaseModel):
     fornecedor_email: Optional[str] = None
 
 
+class SmtpTestPayload(BaseModel):
+    to_email: Optional[str] = None
+
+
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -247,22 +251,52 @@ def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:
         return conn.execute("SELECT * FROM propostas WHERE id = ?", (id_proposta,)).fetchone()
 
 
-def _enviar_notificacao_resposta(proposta: dict, classificacao: str, mensagem_final: str, mensagem_fornecedor: str = "") -> None:
+def _get_smtp_config() -> dict:
     smtp_host = str(os.getenv("SMTP_HOST", "")).strip()
     smtp_port_raw = str(os.getenv("SMTP_PORT", "587")).strip() or "587"
     smtp_user = str(os.getenv("SMTP_USER", "")).strip()
     smtp_password = str(os.getenv("SMTP_PASSWORD", "")).strip()
-
-    # Email do financeiro (se nao vier, usa o proprio SMTP_USER)
     notify_email = str(os.getenv("NOTIFY_EMAIL", "")).strip() or smtp_user
-    fornecedor_email = str(proposta.get("fornecedor_email", "") or "").strip()
-
-    if not all([smtp_host, smtp_user, smtp_password, notify_email]):
-        print("SMTP incompleto no backend web; notificacao de resposta nao enviada.")
-        return
 
     m = re.search(r"(\d+)", smtp_port_raw)
     smtp_port = int(m.group(1)) if m else 587
+
+    return {
+        "smtp_host": smtp_host,
+        "smtp_port": smtp_port,
+        "smtp_user": smtp_user,
+        "smtp_password": smtp_password,
+        "notify_email": notify_email,
+    }
+
+
+def _send_smtp_email(to_addrs: list[str], subject: str, body: str) -> None:
+    cfg = _get_smtp_config()
+    if not all([cfg["smtp_host"], cfg["smtp_user"], cfg["smtp_password"], to_addrs]):
+        raise RuntimeError("Configuracao SMTP incompleta")
+
+    msg = EmailMessage()
+    msg["From"] = cfg["smtp_user"]
+    msg["To"] = ", ".join(to_addrs)
+    msg["Subject"] = subject
+    msg.set_content(body, subtype="plain", charset="utf-8")
+
+    with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+        server.starttls()
+        server.login(cfg["smtp_user"], cfg["smtp_password"])
+        server.send_message(msg, to_addrs=to_addrs)
+
+
+def _enviar_notificacao_resposta(proposta: dict, classificacao: str, mensagem_final: str, mensagem_fornecedor: str = "") -> None:
+    cfg = _get_smtp_config()
+
+    smtp_user = cfg["smtp_user"]
+    notify_email = cfg["notify_email"]
+    fornecedor_email = str(proposta.get("fornecedor_email", "") or "").strip()
+
+    if not all([cfg["smtp_host"], smtp_user, cfg["smtp_password"], notify_email]):
+        print("SMTP incompleto no backend web; notificacao de resposta nao enviada.")
+        return
 
     assunto = f"[RESPOSTA PROPOSTA] {classificacao} - {proposta.get('fornecedor', '')}"
     numero = proposta.get("numero_proposta", "")
@@ -282,20 +316,9 @@ def _enviar_notificacao_resposta(proposta: dict, classificacao: str, mensagem_fi
     if mensagem_fornecedor:
         body_lines.extend(["", f"Mensagem enviada pelo fornecedor: {mensagem_fornecedor}"])
 
-    msg = EmailMessage()
-    msg["From"] = smtp_user
-    msg["To"] = notify_email
-    if fornecedor_email:
-        msg["Cc"] = fornecedor_email
-    msg["Subject"] = assunto
-    msg.set_content("\n".join(body_lines), subtype="plain", charset="utf-8")
-
     destinatarios = [notify_email] + ([fornecedor_email] if fornecedor_email else [])
 
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.send_message(msg, to_addrs=destinatarios)
+    _send_smtp_email(destinatarios, assunto, "\n".join(body_lines))
 
 
 def validate_proposta_token(id_proposta: int, token: str) -> sqlite3.Row:
@@ -561,6 +584,40 @@ def listar_respostas(limit: int = 100) -> dict:
             (limit,),
         ).fetchall()
     return {"items": [dict(r) for r in rows]}
+
+
+@app.get("/admin/smtp-status", response_class=JSONResponse)
+def smtp_status() -> dict:
+    cfg = _get_smtp_config()
+    return {
+        "ok": all([cfg["smtp_host"], cfg["smtp_user"], cfg["smtp_password"], cfg["notify_email"]]),
+        "has_smtp_host": bool(cfg["smtp_host"]),
+        "has_smtp_port": bool(cfg["smtp_port"]),
+        "has_smtp_user": bool(cfg["smtp_user"]),
+        "has_smtp_password": bool(cfg["smtp_password"]),
+        "has_notify_email": bool(cfg["notify_email"]),
+        "notify_email": cfg["notify_email"] or "",
+    }
+
+
+@app.post("/admin/smtp-test", response_class=JSONResponse)
+def smtp_test(payload: SmtpTestPayload) -> dict:
+    cfg = _get_smtp_config()
+    destino = (payload.to_email or cfg["notify_email"] or "").strip()
+    if not destino:
+        raise HTTPException(status_code=400, detail="Destino de teste nao informado")
+
+    assunto = "[SMTP TESTE] Fornecedor IA Web"
+    corpo = (
+        "Teste de envio SMTP realizado com sucesso pelo backend web.\n\n"
+        f"Horario: {now_sp_iso()}\n"
+        "Sistema: Fornecedor IA Respostas"
+    )
+    try:
+        _send_smtp_email([destino], assunto, corpo)
+        return {"ok": True, "sent_to": destino}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha no envio SMTP: {e}")
 
 
 if __name__ == "__main__":
