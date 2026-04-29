@@ -320,6 +320,103 @@ def responder(payload: RespostaPayload) -> dict:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}\n{tb}")
 
 
+@app.get("/resposta/{token}/{acao}", response_class=HTMLResponse)
+def responder_via_link(token: str, acao: str):
+    """Rota acionada pelo clique direto nos botões do email."""
+    acao = acao.lower().strip()
+    mapa_acao = {"aceito": "aceitar", "aceitar": "aceitar", "negociar": "negociar", "recusar": "recusar", "nao-aceito": "recusar"}
+    acao_norm = mapa_acao.get(acao)
+
+    if not acao_norm:
+        raise HTTPException(status_code=400, detail="Acao invalida")
+
+    # Buscar proposta pelo token
+    with get_conn() as conn:
+        proposta = conn.execute("SELECT * FROM propostas WHERE token = ?", (token,)).fetchone()
+
+    if not proposta:
+        raise HTTPException(status_code=404, detail="Proposta nao encontrada")
+
+    proposta_dict = dict(proposta)
+
+    if proposta_dict["responded"] == 1:
+        return HTMLResponse(content=_html_confirmacao(
+            proposta_dict["fornecedor"],
+            "Proposta já respondida",
+            "Esta proposta já foi respondida anteriormente. Entre em contato pelo WhatsApp: (11) 93239-3849.",
+            "#718096", "aviso"
+        ))
+
+    if acao_norm == "aceitar":
+        classificacao = STATUS_ACEITO
+        mensagem_final = "Confirmação de aceite registrada. A proposta foi aprovada e seguiremos com a formalização dos próximos passos. Aguarde o contato do Financeiro."
+        titulo = "Aceite Confirmado!"
+        cor = "#276749"
+        icone = "✅"
+    elif acao_norm == "negociar":
+        classificacao = STATUS_NEGOCIAR
+        mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
+        titulo = "Negociação Registrada!"
+        cor = "#856404"
+        icone = "💬"
+    else:
+        classificacao = STATUS_RECUSADO
+        mensagem_final = "Não aceite registrado. Para tratarmos novas condições comerciais, entre em contato pelo WhatsApp: (11) 93239-3849."
+        titulo = "Não Aceite Registrado"
+        cor = "#9b1c1c"
+        icone = "❌"
+
+    now = now_sp_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO respostas (id_proposta, fornecedor, mensagem_texto, classificacao_ia, created_at) VALUES (?, ?, ?, ?, ?)",
+            (proposta_dict["id"], proposta_dict["fornecedor"], mensagem_final, classificacao, now),
+        )
+        conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (proposta_dict["id"],))
+
+    return HTMLResponse(content=_html_confirmacao(proposta_dict["fornecedor"], titulo, mensagem_final, cor, icone))
+
+
+def _html_confirmacao(fornecedor: str, titulo: str, mensagem: str, cor: str, icone: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resposta Registrada</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}}
+    .card{{background:#fff;border-radius:16px;padding:48px 40px;max-width:520px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.12);text-align:center}}
+    .icone{{font-size:64px;margin-bottom:16px}}
+    h1{{color:#1e3a5f;font-size:24px;margin-bottom:12px}}
+    .mensagem{{color:#4a5568;font-size:15px;line-height:1.6;margin-bottom:28px;padding:0 8px}}
+    .aviso-box{{background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:18px 20px;margin-bottom:24px;color:#166534;font-size:14px;line-height:1.5}}
+    .aviso-box strong{{display:block;margin-bottom:6px;font-size:15px}}
+    .fornecedor{{color:#718096;font-size:13px;margin-bottom:32px}}
+    .footer{{border-top:1px solid #e2e8f0;padding-top:20px;color:#a0aec0;font-size:12px;line-height:1.6}}
+    .footer strong{{color:#1e3a5f;display:block;margin-bottom:4px}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icone">{icone}</div>
+    <h1>{titulo}</h1>
+    <p class="fornecedor">{fornecedor}</p>
+    <p class="mensagem">{mensagem}</p>
+    <div class="aviso-box">
+      <strong>📧 Email enviado com sucesso!</strong>
+      Sua resposta foi registrada e o Financeiro será notificado. Aguarde o retorno em breve.
+    </div>
+    <div class="footer">
+      <strong>MERCADÃO ATACADISTA – MESA DE ANTECIPAÇÃO</strong>
+      jonas@mercadaoatacadista.com.br &nbsp;|&nbsp; (11) 3791-1130 Ramal 2016
+    </div>
+  </div>
+</body>
+</html>"""
+
+
 @app.get("/admin/respostas", response_class=JSONResponse)
 def listar_respostas(limit: int = 100) -> dict:
     limit = max(1, min(limit, 1000))
