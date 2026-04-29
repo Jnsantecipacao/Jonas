@@ -1,8 +1,10 @@
 import json
 import os
 import re
+import smtplib
 import sqlite3
 from datetime import datetime
+from email.message import EmailMessage
 from pathlib import Path
 from secrets import token_urlsafe
 from typing import Optional
@@ -71,6 +73,7 @@ class PropostaPayload(BaseModel):
     valor: float
     data_proposta: str
     taxa_desconto: Optional[float] = None
+    fornecedor_email: Optional[str] = None
 
 
 def get_conn() -> sqlite3.Connection:
@@ -87,6 +90,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero_proposta TEXT NOT NULL,
                 fornecedor TEXT NOT NULL,
+                fornecedor_email TEXT,
                 valor REAL NOT NULL,
                 data_proposta TEXT NOT NULL,
                 taxa_desconto REAL,
@@ -96,6 +100,9 @@ def init_db() -> None:
             )
             """
         )
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(propostas)").fetchall()]
+        if "fornecedor_email" not in cols:
+            conn.execute("ALTER TABLE propostas ADD COLUMN fornecedor_email TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS respostas (
@@ -240,6 +247,57 @@ def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:
         return conn.execute("SELECT * FROM propostas WHERE id = ?", (id_proposta,)).fetchone()
 
 
+def _enviar_notificacao_resposta(proposta: dict, classificacao: str, mensagem_final: str, mensagem_fornecedor: str = "") -> None:
+    smtp_host = str(os.getenv("SMTP_HOST", "")).strip()
+    smtp_port_raw = str(os.getenv("SMTP_PORT", "587")).strip() or "587"
+    smtp_user = str(os.getenv("SMTP_USER", "")).strip()
+    smtp_password = str(os.getenv("SMTP_PASSWORD", "")).strip()
+
+    # Email do financeiro (se nao vier, usa o proprio SMTP_USER)
+    notify_email = str(os.getenv("NOTIFY_EMAIL", "")).strip() or smtp_user
+    fornecedor_email = str(proposta.get("fornecedor_email", "") or "").strip()
+
+    if not all([smtp_host, smtp_user, smtp_password, notify_email]):
+        print("SMTP incompleto no backend web; notificacao de resposta nao enviada.")
+        return
+
+    m = re.search(r"(\d+)", smtp_port_raw)
+    smtp_port = int(m.group(1)) if m else 587
+
+    assunto = f"[RESPOSTA PROPOSTA] {classificacao} - {proposta.get('fornecedor', '')}"
+    numero = proposta.get("numero_proposta", "")
+    taxa = proposta.get("taxa_desconto", "")
+
+    body_lines = [
+        "Resposta registrada no portal de propostas.",
+        "",
+        f"Fornecedor: {proposta.get('fornecedor', '')}",
+        f"Email fornecedor: {fornecedor_email or 'nao informado'}",
+        f"Proposta: {numero}",
+        f"Classificacao: {classificacao}",
+        f"Taxa da proposta: {taxa if taxa not in (None, '') else 'nao informada'}",
+        "",
+        f"Mensagem final do sistema: {mensagem_final}",
+    ]
+    if mensagem_fornecedor:
+        body_lines.extend(["", f"Mensagem enviada pelo fornecedor: {mensagem_fornecedor}"])
+
+    msg = EmailMessage()
+    msg["From"] = smtp_user
+    msg["To"] = notify_email
+    if fornecedor_email:
+        msg["Cc"] = fornecedor_email
+    msg["Subject"] = assunto
+    msg.set_content("\n".join(body_lines), subtype="plain", charset="utf-8")
+
+    destinatarios = [notify_email] + ([fornecedor_email] if fornecedor_email else [])
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg, to_addrs=destinatarios)
+
+
 def validate_proposta_token(id_proposta: int, token: str) -> sqlite3.Row:
     proposta = load_proposta(id_proposta)
     if not proposta:
@@ -268,12 +326,13 @@ def criar_proposta(payload: PropostaPayload) -> dict:
     with get_conn() as conn:
         cur = conn.execute(
             """
-            INSERT INTO propostas (numero_proposta, fornecedor, valor, data_proposta, taxa_desconto, token, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO propostas (numero_proposta, fornecedor, fornecedor_email, valor, data_proposta, taxa_desconto, token, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.numero_proposta,
                 payload.fornecedor,
+                payload.fornecedor_email,
                 payload.valor,
                 payload.data_proposta,
                 payload.taxa_desconto,
@@ -358,6 +417,16 @@ def responder(payload: RespostaPayload) -> dict:
             )
             conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (payload.id_proposta,))
 
+        try:
+            _enviar_notificacao_resposta(
+                proposta_dict,
+                classificacao,
+                mensagem_final,
+                (payload.mensagem_texto or "").strip(),
+            )
+        except Exception as notify_err:
+            print(f"Falha ao enviar notificacao por email: {notify_err}")
+
         return {
             "ok": True,
             "id_proposta": payload.id_proposta,
@@ -425,6 +494,11 @@ def responder_via_link(token: str, acao: str):
             (proposta_dict["id"], proposta_dict["fornecedor"], mensagem_final, classificacao, now),
         )
         conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (proposta_dict["id"],))
+
+    try:
+        _enviar_notificacao_resposta(proposta_dict, classificacao, mensagem_final)
+    except Exception as notify_err:
+        print(f"Falha ao enviar notificacao por email: {notify_err}")
 
     return HTMLResponse(content=_html_confirmacao(proposta_dict["fornecedor"], titulo, mensagem_final, cor, icone))
 
