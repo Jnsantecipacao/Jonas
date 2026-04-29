@@ -244,12 +244,13 @@ def criar_proposta(payload: PropostaPayload) -> dict:
 @app.get("/resposta", response_class=HTMLResponse)
 def tela_resposta(request: Request, id: int, token: str):
     proposta = validate_proposta_token(id, token)
-    resposta_negociacao = gerar_resposta_negociacao(proposta.get("taxa_desconto"))
+    proposta_dict = dict(proposta)
+    resposta_negociacao = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
     return TEMPLATES.TemplateResponse(
         request=request,
         name="chat.html",
         context={
-            "proposta": proposta,
+            "proposta": proposta_dict,
             "token": token,
             "resposta_negociacao": resposta_negociacao,
         },
@@ -259,6 +260,9 @@ def tela_resposta(request: Request, id: int, token: str):
 @app.post("/resposta", response_class=JSONResponse)
 def responder(payload: RespostaPayload) -> dict:
     proposta = validate_proposta_token(payload.id_proposta, payload.token)
+    
+    # Converter proposta para dict para facilitar acesso
+    proposta_dict = dict(proposta)
 
     # Se ação de botão, traduzir para classificação apropriada
     if payload.acao == "aceitar":
@@ -266,7 +270,7 @@ def responder(payload: RespostaPayload) -> dict:
         mensagem_final = "Proposta aceita!"
     elif payload.acao == "negociar":
         classificacao = STATUS_NEGOCIAR
-        mensagem_final = gerar_resposta_negociacao(proposta.get("taxa_desconto"))
+        mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
     elif payload.acao == "recusar":
         classificacao = STATUS_RECUSADO
         mensagem_final = "Proposta recusada. Entraremos em contato."
