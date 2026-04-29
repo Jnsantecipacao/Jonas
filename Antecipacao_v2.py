@@ -749,6 +749,7 @@ def sincronizar_respostas_ia(limit=300):
             return 0
 
         respostas_por_id = {}
+        respostas_por_token = {}
         for item in items:
             try:
                 pid = int(item.get('id_proposta'))
@@ -756,6 +757,10 @@ def sincronizar_respostas_ia(limit=300):
                 continue
             if pid not in respostas_por_id:
                 respostas_por_id[pid] = item
+
+            token_item = str(item.get('token', '') or '').strip()
+            if token_item and token_item not in respostas_por_token:
+                respostas_por_token[token_item] = item
 
         propostas = load_propostas()
         alteradas = 0
@@ -770,10 +775,13 @@ def sincronizar_respostas_ia(limit=300):
                         proposta['ai_token'] = ai_token
                     alteradas += 1
 
-            if not ai_id:
-                continue
+            resposta = None
+            ai_token = str(proposta.get('ai_token', '') or '').strip()
+            if ai_token:
+                resposta = respostas_por_token.get(ai_token)
 
-            resposta = respostas_por_id.get(int(ai_id))
+            if not resposta and ai_id:
+                resposta = respostas_por_id.get(int(ai_id))
 
             if not resposta:
                 continue
