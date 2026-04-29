@@ -259,46 +259,51 @@ def tela_resposta(request: Request, id: int, token: str):
 
 @app.post("/resposta", response_class=JSONResponse)
 def responder(payload: RespostaPayload) -> dict:
-    proposta = validate_proposta_token(payload.id_proposta, payload.token)
-    
-    # Converter proposta para dict para facilitar acesso
-    proposta_dict = dict(proposta)
+    try:
+        proposta = validate_proposta_token(payload.id_proposta, payload.token)
+        
+        # Converter proposta para dict para facilitar acesso
+        proposta_dict = dict(proposta)
 
-    # Se ação de botão, traduzir para classificação apropriada
-    if payload.acao == "aceitar":
-        classificacao = STATUS_ACEITO
-        mensagem_final = "Proposta aceita!"
-    elif payload.acao == "negociar":
-        classificacao = STATUS_NEGOCIAR
-        mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
-    elif payload.acao == "recusar":
-        classificacao = STATUS_RECUSADO
-        mensagem_final = "Proposta recusada. Entraremos em contato."
-    else:
-        # Texto livre - classificar automaticamente
-        classificacao = classify_text(payload.mensagem_texto)
-        mensagem_final = payload.mensagem_texto
+        # Se ação de botão, traduzir para classificação apropriada
+        if payload.acao == "aceitar":
+            classificacao = STATUS_ACEITO
+            mensagem_final = "Proposta aceita!"
+        elif payload.acao == "negociar":
+            classificacao = STATUS_NEGOCIAR
+            mensagem_final = gerar_resposta_negociacao(proposta_dict.get("taxa_desconto"))
+        elif payload.acao == "recusar":
+            classificacao = STATUS_RECUSADO
+            mensagem_final = "Proposta recusada. Entraremos em contato."
+        else:
+            # Texto livre - classificar automaticamente
+            classificacao = classify_text(payload.mensagem_texto)
+            mensagem_final = payload.mensagem_texto
 
-    now = now_sp_iso()
+        now = now_sp_iso()
 
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO respostas (id_proposta, fornecedor, mensagem_texto, classificacao_ia, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (payload.id_proposta, payload.fornecedor, mensagem_final, classificacao, now),
-        )
-        conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (payload.id_proposta,))
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO respostas (id_proposta, fornecedor, mensagem_texto, classificacao_ia, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (payload.id_proposta, payload.fornecedor, mensagem_final, classificacao, now),
+            )
+            conn.execute("UPDATE propostas SET responded = 1 WHERE id = ?", (payload.id_proposta,))
 
-    return {
-        "ok": True,
-        "id_proposta": payload.id_proposta,
-        "fornecedor": proposta_dict["fornecedor"],
-        "classificacao": classificacao,
-        "mensagem": mensagem_final,
-        "data_hora": now,
-    }
+        return {
+            "ok": True,
+            "id_proposta": payload.id_proposta,
+            "fornecedor": proposta_dict["fornecedor"],
+            "classificacao": classificacao,
+            "mensagem": mensagem_final,
+            "data_hora": now,
+        }
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}\n{tb}")
 
 
 @app.get("/admin/respostas", response_class=JSONResponse)
