@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import socket
 import smtplib
 import sqlite3
 from datetime import datetime
@@ -272,9 +273,12 @@ def _get_smtp_config() -> dict:
         "FINANCE_EMAIL",
         "finance_email",
     ) or smtp_user
+    smtp_timeout_raw = _env_first("SMTP_TIMEOUT", "smtp_timeout") or "20"
 
     m = re.search(r"(\d+)", smtp_port_raw)
     smtp_port = int(m.group(1)) if m else 587
+    t = re.search(r"(\d+)", smtp_timeout_raw)
+    smtp_timeout = int(t.group(1)) if t else 20
 
     return {
         "smtp_host": smtp_host,
@@ -282,6 +286,7 @@ def _get_smtp_config() -> dict:
         "smtp_user": smtp_user,
         "smtp_password": smtp_password,
         "notify_email": notify_email,
+        "smtp_timeout": max(5, smtp_timeout),
     }
 
 
@@ -296,10 +301,27 @@ def _send_smtp_email(to_addrs: list[str], subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg.set_content(body, subtype="plain", charset="utf-8")
 
-    with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
-        server.starttls()
-        server.login(cfg["smtp_user"], cfg["smtp_password"])
-        server.send_message(msg, to_addrs=to_addrs)
+    etapa = "conexao"
+    try:
+        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=cfg["smtp_timeout"]) as server:
+            server.ehlo()
+            etapa = "starttls"
+            server.starttls()
+            server.ehlo()
+            etapa = "autenticacao"
+            server.login(cfg["smtp_user"], cfg["smtp_password"])
+            etapa = "envio"
+            server.send_message(msg, to_addrs=to_addrs)
+    except smtplib.SMTPAuthenticationError as e:
+        raise RuntimeError(f"Falha de autenticacao SMTP na etapa {etapa}: verifique usuario e senha") from e
+    except smtplib.SMTPConnectError as e:
+        raise RuntimeError(f"Falha de conexao SMTP na etapa {etapa}: servidor recusou conexao") from e
+    except (socket.timeout, TimeoutError) as e:
+        raise RuntimeError(f"Timeout SMTP na etapa {etapa}: servidor demorou para responder") from e
+    except OSError as e:
+        raise RuntimeError(f"Erro de rede SMTP na etapa {etapa}: {e}") from e
+    except smtplib.SMTPException as e:
+        raise RuntimeError(f"Erro SMTP na etapa {etapa}: {e}") from e
 
 
 def _enviar_notificacao_resposta(proposta: dict, classificacao: str, mensagem_final: str, mensagem_fornecedor: str = "") -> None:
