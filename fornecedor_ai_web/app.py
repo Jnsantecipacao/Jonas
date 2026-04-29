@@ -313,7 +313,7 @@ def listar_respostas(limit: int = 100) -> dict:
         rows = conn.execute(
             """
             SELECT r.id, r.id_proposta, p.numero_proposta, r.fornecedor,
-                     p.token,
+                     p.token, p.taxa_desconto,
                    r.mensagem_texto,
                    r.classificacao_ia AS classificacao,
                    r.created_at AS data_resposta,
