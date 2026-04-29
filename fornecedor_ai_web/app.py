@@ -251,12 +251,20 @@ def load_proposta(id_proposta: int) -> Optional[sqlite3.Row]:
         return conn.execute("SELECT * FROM propostas WHERE id = ?", (id_proposta,)).fetchone()
 
 
+def _env_first(*keys: str) -> str:
+    for key in keys:
+        val = str(os.getenv(key, "") or "").strip()
+        if val:
+            return val
+    return ""
+
+
 def _get_smtp_config() -> dict:
-    smtp_host = str(os.getenv("SMTP_HOST", "")).strip()
-    smtp_port_raw = str(os.getenv("SMTP_PORT", "587")).strip() or "587"
-    smtp_user = str(os.getenv("SMTP_USER", "")).strip()
-    smtp_password = str(os.getenv("SMTP_PASSWORD", "")).strip()
-    notify_email = str(os.getenv("NOTIFY_EMAIL", "")).strip() or smtp_user
+    smtp_host = _env_first("SMTP_HOST", "smtp_host")
+    smtp_port_raw = _env_first("SMTP_PORT", "smtp_port") or "587"
+    smtp_user = _env_first("SMTP_USER", "smtp_user")
+    smtp_password = _env_first("SMTP_PASSWORD", "smtp_password")
+    notify_email = _env_first("NOTIFY_EMAIL", "notify_email") or smtp_user
 
     m = re.search(r"(\d+)", smtp_port_raw)
     smtp_port = int(m.group(1)) if m else 587
