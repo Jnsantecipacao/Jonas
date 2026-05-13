@@ -64,7 +64,7 @@ def now_sp_iso() -> str:
         return datetime.now().isoformat(timespec="seconds")
     return datetime.now(APP_TIMEZONE).isoformat(timespec="seconds")
 
-app = FastAPI(title="Fornecedor IA Respostas", version="1.0.2")
+app = FastAPI(title="Fornecedor IA Respostas", version="1.0.3")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -969,6 +969,80 @@ def tela_resposta(request: Request, id: int, token: str):
             "resposta_inicial": resposta_inicial,
             "regras_negociacao": regras_negociacao,
         },
+    )
+
+
+@app.get("/resposta-email/{token}/{acao}", response_class=HTMLResponse)
+def resposta_email_compat(token: str, acao: str, request: Request):
+    with get_conn() as conn:
+        proposta = conn.execute("SELECT * FROM propostas WHERE token = ?", (token,)).fetchone()
+
+    if not proposta:
+        raise HTTPException(status_code=404, detail="Proposta nao encontrada")
+
+    mapa_acao = {
+        "aceito": "aceitar",
+        "aceitar": "aceitar",
+        "negociar": "negociar",
+        "recusar": "recusar",
+        "nao-aceito": "recusar",
+    }
+    acao_norm = mapa_acao.get(str(acao or "").lower().strip())
+    if not acao_norm:
+        raise HTTPException(status_code=400, detail="Acao invalida")
+
+    proposta_dict = dict(proposta)
+    payload = RespostaPayload(
+        id_proposta=int(proposta_dict["id"]),
+        fornecedor=str(proposta_dict.get("fornecedor", "") or ""),
+        mensagem_texto="",
+        token=token,
+        acao=acao_norm,
+    )
+
+    resultado = responder(payload)
+    status = str(resultado.get("classificacao", acao_norm)).upper()
+
+    if status == STATUS_ACEITO:
+        titulo = "Aceite registrado"
+        mensagem = "Sua confirmação foi registrada com sucesso."
+        cor = "#276749"
+    elif status == STATUS_NEGOCIAR:
+        titulo = "Negociação registrada"
+        mensagem = "Sua solicitação de negociação foi registrada com sucesso."
+        cor = "#856404"
+    else:
+        titulo = "Recusa registrada"
+        mensagem = "Sua recusa foi registrada com sucesso."
+        cor = "#9b1c1c"
+
+    return HTMLResponse(
+        content=f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{titulo}</title>
+  <style>
+    body {{ margin: 0; font-family: Arial, sans-serif; background: #f0f2f5; min-height: 100vh; display: grid; place-items: center; padding: 24px; }}
+    .card {{ width: min(560px, 100%); background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.08); padding: 32px; text-align: center; }}
+    .badge {{ display: inline-block; padding: 8px 18px; border-radius: 999px; background: {cor}; color: #fff; font-weight: 700; margin-bottom: 14px; }}
+    h1 {{ margin: 0 0 10px; color: #1f2937; font-size: 24px; }}
+    p {{ margin: 0; color: #4b5563; line-height: 1.6; }}
+    .meta {{ margin-top: 18px; font-size: 13px; color: #6b7280; }}
+    a {{ color: #0f766e; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">{status}</div>
+    <h1>{titulo}</h1>
+    <p>{mensagem}</p>
+    <div class="meta">Proposta: {proposta_dict.get('numero_proposta', '')}</div>
+  </div>
+</body>
+</html>""",
+        status_code=200,
     )
 
 
