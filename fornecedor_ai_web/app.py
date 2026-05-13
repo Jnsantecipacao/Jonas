@@ -896,6 +896,11 @@ def health() -> dict:
     return {"status": "ok", "time": now_sp_iso()}
 
 
+@app.get("/status")
+def status() -> dict:
+    return {"status": "ok"}
+
+
 @app.post("/propostas", response_class=JSONResponse)
 def criar_proposta(payload: PropostaPayload) -> dict:
     tk = token_urlsafe(18)
