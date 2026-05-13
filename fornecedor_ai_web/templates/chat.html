@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Resposta da Proposta</title>
-  <link rel="stylesheet" href="/static/chat.css?v=20260513b" />
+  <link rel="stylesheet" href="/static/chat.css" />
 </head>
 <body>
   <main class="page">
@@ -17,7 +17,7 @@
       <section class="proposal">
         <div><strong>Proposta:</strong> {{ proposta['numero_proposta'] }}</div>
         <div><strong>Fornecedor:</strong> {{ proposta['fornecedor'] }}</div>
-        <div><strong>Valor:</strong> R$ {{ "{:,.2f}".format(proposta['valor']).replace(",", "X").replace(".", ",").replace("X", ".") }}</div>
+        <div><strong>Valor:</strong> R$ {{ "%.2f"|format(proposta['valor']) }}</div>
         <div><strong>Data:</strong> {{ proposta['data_proposta'] }}</div>
         {% if proposta['taxa_desconto'] %}
         <div><strong>Taxa de Desconto:</strong> {{ proposta['taxa_desconto'] }}%</div>
@@ -27,12 +27,7 @@
       <section
         id="chatBox"
         class="chat-box"
-        data-taxa-original="{{ regras_negociacao['taxa_original_pct'] if regras_negociacao['taxa_original_pct'] is not none else '' }}"
-        data-taxa-primeira="{{ regras_negociacao['taxa_primeira_contraproposta_pct'] if regras_negociacao['taxa_primeira_contraproposta_pct'] is not none else '' }}"
-        data-taxa-segunda="{{ regras_negociacao['taxa_segunda_contraproposta_pct'] if regras_negociacao['taxa_segunda_contraproposta_pct'] is not none else '' }}"
-        data-negociacao-max="{{ regras_negociacao['negociacao_max_tentativas'] }}"
-        data-whatsapp="{{ regras_negociacao['whatsapp_contato'] }}"
-        data-instrucao-limite="{{ regras_negociacao['instrucao_limite'] }}"
+        data-negotiation-suggestion="{{ resposta_negociacao }}"
       >
         <div class="bubble bot">
           {{ resposta_inicial }}
@@ -45,17 +40,13 @@
         <button id="btnRecusar" class="btn btn-danger">Não Aceito</button>
       </section>
 
-      <div class="hidden-fields" aria-hidden="true">
+      <form id="formResposta" class="composer" style="display: none;">
         <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
         <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
         <input type="hidden" id="token" value="{{ token }}" />
-        <input type="hidden" id="taxaOriginalPct" value="{{ regras_negociacao['taxa_original_pct'] if regras_negociacao['taxa_original_pct'] is not none else '' }}" />
-        <input type="hidden" id="taxaPrimeiraPct" value="{{ regras_negociacao['taxa_primeira_contraproposta_pct'] if regras_negociacao['taxa_primeira_contraproposta_pct'] is not none else '' }}" />
-        <input type="hidden" id="taxaSegundaPct" value="{{ regras_negociacao['taxa_segunda_contraproposta_pct'] if regras_negociacao['taxa_segunda_contraproposta_pct'] is not none else '' }}" />
-        <input type="hidden" id="negociacaoMaxTentativas" value="{{ regras_negociacao['negociacao_max_tentativas'] }}" />
-        <input type="hidden" id="whatsappContato" value="{{ regras_negociacao['whatsapp_contato'] }}" />
-        <input type="hidden" id="instrucaoLimite" value="{{ regras_negociacao['instrucao_limite'] }}" />
-      </div>
+        <textarea id="mensagem" placeholder="Digite sua contraproposta sobre a taxa" required></textarea>
+        <button type="submit">Enviar</button>
+      </form>
 
       <p id="status" class="status"></p>
     </section>
@@ -64,59 +55,22 @@
   <script>
     const chatBox = document.getElementById('chatBox');
     const statusEl = document.getElementById('status');
+    const formResposta = document.getElementById('formResposta');
     const btnAceito = document.getElementById('btnAceito');
     const btnNegociar = document.getElementById('btnNegociar');
     const btnRecusar = document.getElementById('btnRecusar');
     const actionButtons = document.querySelector('.action-buttons');
+    const mensagemInput = document.getElementById('mensagem');
+    const sugestaoNegociacao = chatBox.dataset.negotiationSuggestion || '';
 
     let respondidoAtivo = false;
-
-    function escapeHtml(text) {
-      return String(text || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-    }
-
-    function linkifyText(text) {
-      const escaped = escapeHtml(text);
-      return escaped.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-    }
+    let sugestaoExibida = false;
 
     function addBubble(text, type) {
       const div = document.createElement('div');
       div.className = `bubble ${type}`;
-      if (type === 'bot') {
-        div.innerHTML = linkifyText(text);
-      } else {
-        div.textContent = text;
-      }
+      div.textContent = text;
       chatBox.appendChild(div);
-      chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
-    function addWhatsappButton(url, contato) {
-      if (!url) return;
-      const wrapper = document.createElement('div');
-      wrapper.className = 'bubble bot';
-
-      const button = document.createElement('a');
-      button.href = url;
-      button.target = '_blank';
-      button.rel = 'noopener noreferrer';
-      button.textContent = `WhatsApp: ${contato || 'Abrir conversa'}`;
-      button.style.display = 'inline-block';
-      button.style.background = '#25D366';
-      button.style.color = '#ffffff';
-      button.style.padding = '10px 14px';
-      button.style.borderRadius = '8px';
-      button.style.fontWeight = '700';
-      button.style.textDecoration = 'none';
-
-      wrapper.appendChild(button);
-      chatBox.appendChild(wrapper);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
@@ -140,12 +94,6 @@
         mensagem_texto: mensagem,
         token: document.getElementById('token').value,
         acao: acao,
-        taxa_original_pct: document.getElementById('taxaOriginalPct').value || null,
-        taxa_primeira_contraproposta_pct: document.getElementById('taxaPrimeiraPct').value || null,
-        taxa_segunda_contraproposta_pct: document.getElementById('taxaSegundaPct').value || null,
-        negociacao_max_tentativas: document.getElementById('negociacaoMaxTentativas').value || null,
-        whatsapp_contato: document.getElementById('whatsappContato').value || null,
-        instrucao_limite: document.getElementById('instrucaoLimite').value || null,
       };
 
       try {
@@ -157,13 +105,6 @@
 
         const data = await resp.json();
         if (!resp.ok) {
-          if (resp.status === 409) {
-            const msg = 'Esta proposta ja foi respondida anteriormente.';
-            addBubble(msg, 'bot');
-            statusEl.textContent = msg;
-            desabilitarBotoes();
-            return;
-          }
           addBubble(data.detail || 'Erro ao enviar resposta.', 'bot');
           statusEl.textContent = 'Erro ao registrar resposta.';
           return;
@@ -171,12 +112,8 @@
 
         addBubble(data.mensagem, 'bot');
         statusEl.textContent = `Resposta registrada: ${data.classificacao}`;
-        if (data.finalizada) {
-          desabilitarBotoes();
-          if (data.whatsapp_url) {
-            addWhatsappButton(data.whatsapp_url, document.getElementById('whatsappContato').value);
-          }
-        }
+        desabilitarBotoes();
+        formResposta.style.display = 'none';
       } catch (err) {
         addBubble('Falha de conexão ao enviar resposta.', 'bot');
         statusEl.textContent = 'Erro de conexão.';
@@ -190,7 +127,12 @@
 
     btnNegociar.addEventListener('click', () => {
       addBubble('Quero Negociar', 'user');
-      enviarResposta('negociar');
+      if (!sugestaoExibida && sugestaoNegociacao) {
+        addBubble(sugestaoNegociacao, 'bot');
+        sugestaoExibida = true;
+      }
+      formResposta.style.display = 'grid';
+      mensagemInput.focus();
     });
 
     btnRecusar.addEventListener('click', () => {
@@ -198,6 +140,18 @@
       enviarResposta('recusar');
     });
 
+    formResposta.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusEl.textContent = '';
+
+      const mensagem = document.getElementById('mensagem').value.trim();
+      if (!mensagem) return;
+
+      addBubble(mensagem, 'user');
+      await enviarResposta('negociar', mensagem);
+      mensagemInput.value = '';
+      formResposta.style.display = 'none';
+    });
   </script>
 </body>
 </html>
