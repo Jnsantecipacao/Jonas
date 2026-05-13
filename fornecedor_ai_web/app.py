@@ -64,7 +64,7 @@ def now_sp_iso() -> str:
         return datetime.now().isoformat(timespec="seconds")
     return datetime.now(APP_TIMEZONE).isoformat(timespec="seconds")
 
-app = FastAPI(title="Fornecedor IA Respostas", version="1.0.1")
+app = FastAPI(title="Fornecedor IA Respostas", version="1.0.2")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
