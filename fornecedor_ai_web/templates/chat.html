@@ -27,7 +27,6 @@
       <section
         id="chatBox"
         class="chat-box"
-        data-negotiation-suggestion="{{ resposta_negociacao }}"
       >
         <div class="bubble bot">
           {{ resposta_inicial }}
@@ -40,13 +39,9 @@
         <button id="btnRecusar" class="btn btn-danger">Não Aceito</button>
       </section>
 
-      <form id="formResposta" class="composer" style="display: none;">
-        <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
-        <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
-        <input type="hidden" id="token" value="{{ token }}" />
-        <textarea id="mensagem" placeholder="Digite sua contraproposta sobre a taxa" required></textarea>
-        <button type="submit">Enviar</button>
-      </form>
+      <input type="hidden" id="idProposta" value="{{ proposta['id'] }}" />
+      <input type="hidden" id="fornecedor" value="{{ proposta['fornecedor'] }}" />
+      <input type="hidden" id="token" value="{{ token }}" />
 
       <p id="status" class="status"></p>
     </section>
@@ -55,16 +50,12 @@
   <script>
     const chatBox = document.getElementById('chatBox');
     const statusEl = document.getElementById('status');
-    const formResposta = document.getElementById('formResposta');
     const btnAceito = document.getElementById('btnAceito');
     const btnNegociar = document.getElementById('btnNegociar');
     const btnRecusar = document.getElementById('btnRecusar');
     const actionButtons = document.querySelector('.action-buttons');
-    const mensagemInput = document.getElementById('mensagem');
-    const sugestaoNegociacao = chatBox.dataset.negotiationSuggestion || '';
 
     let respondidoAtivo = false;
-    let sugestaoExibida = false;
 
     function addBubble(text, type) {
       const div = document.createElement('div');
@@ -113,7 +104,6 @@
         addBubble(data.mensagem, 'bot');
         statusEl.textContent = `Resposta registrada: ${data.classificacao}`;
         desabilitarBotoes();
-        formResposta.style.display = 'none';
       } catch (err) {
         addBubble('Falha de conexão ao enviar resposta.', 'bot');
         statusEl.textContent = 'Erro de conexão.';
@@ -127,30 +117,12 @@
 
     btnNegociar.addEventListener('click', () => {
       addBubble('Quero Negociar', 'user');
-      if (!sugestaoExibida && sugestaoNegociacao) {
-        addBubble(sugestaoNegociacao, 'bot');
-        sugestaoExibida = true;
-      }
-      formResposta.style.display = 'grid';
-      mensagemInput.focus();
+      enviarResposta('negociar', '');
     });
 
     btnRecusar.addEventListener('click', () => {
       addBubble('Não Aceito', 'user');
       enviarResposta('recusar');
-    });
-
-    formResposta.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      statusEl.textContent = '';
-
-      const mensagem = document.getElementById('mensagem').value.trim();
-      if (!mensagem) return;
-
-      addBubble(mensagem, 'user');
-      await enviarResposta('negociar', mensagem);
-      mensagemInput.value = '';
-      formResposta.style.display = 'none';
     });
   </script>
 </body>
